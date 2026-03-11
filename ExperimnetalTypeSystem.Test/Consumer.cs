@@ -60,6 +60,7 @@ public partial class Consumer
         var result = current.GetValue() switch
         {
             User u => $"User: {u.FirstName}",
+            Profile profile => $"profile {profile.FirstName}",
             _ => "Unknown"
         };
 
