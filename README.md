@@ -17,6 +17,7 @@ When a partial class is decorated with `[ExpermientalTyping]`, the generator sca
 - ✅ **[OneOf] attribute** — `GetValue()` is decorated with `[OneOf(typeof(T1), typeof(T2), ...)]` for runtime type info
 - ✅ **Exhaustiveness analyzer** — errors when `switch` on `GetValue()` doesn't handle all types (ONEOF001)
 - ✅ **Code fix provider** — IDE suggests "Add missing cases" to auto-generate missing switch arms
+- ✅ **Duplicate union analyzer** — errors when two union declarations have the same types (ONEOF002)
 
 ## Quick Start
 
@@ -255,6 +256,46 @@ The code fix:
 - Inserts missing cases before the discard (`_`) or default case
 - Generates `throw new NotImplementedException()` as placeholder
 - Creates appropriate variable names from type names (e.g., `Profile` → `profile`, `List<User>` → `listUser`)
+
+## Duplicate Union Analyzer
+
+The `DuplicateUnionTypeAnalyzer` prevents declaring multiple union types with the same set of types, regardless of order.
+
+### Diagnostic: ONEOF002
+
+**"Union type '{name}' has the same types as '{other}'. Duplicate union declarations are not allowed."**
+
+#### Example - Will trigger error:
+
+```csharp
+[ExpermientalTyping]
+public partial class Consumer
+{
+    public UnionType CurrentUser => typeof(User) | typeof(Profile);
+    
+    // ❌ ONEOF002: Union type 'CurrentUser2' has the same types as 'CurrentUser'
+    public UnionType CurrentUser2 => typeof(Profile) | typeof(User);  // Same types, different order
+}
+```
+
+#### Valid - Different type sets:
+
+```csharp
+[ExpermientalTyping]
+public partial class Consumer
+{
+    public UnionType CurrentUser => typeof(User) | typeof(Profile);
+    
+    // ✅ OK - different types
+    public UnionType ExtendedUser => typeof(User) | typeof(Profile) | typeof(Profile2);
+}
+```
+
+### Why this rule?
+
+- Prevents confusion from multiple wrapper types for the same union
+- Ensures a single source of truth for each unique type combination
+- Avoids redundant generated code
 
 ## Build and Test
 

@@ -7,6 +7,7 @@ namespace ExperimnetalTypeSystem;
 public partial class Consumer
 {
     public UnionType CurrentUser => typeof(User) | typeof(Profile);
+
     public UnionType XUser => typeof(User) | typeof(Profile) | typeof(Profile2)|typeof(Profile3);
     public UnionType LUser => typeof(List<User>) | typeof(List<Profile>) | typeof(List<Profile2>)|typeof(List<Profile3>);
 
