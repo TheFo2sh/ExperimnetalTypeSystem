@@ -39,11 +39,6 @@ public sealed class ExperimentalTypingGenerator : IIncrementalGenerator
 
         foreach (var member in classDecl.Members.OfType<PropertyDeclarationSyntax>())
         {
-            if (member.ExpressionBody is null)
-            {
-                continue;
-            }
-
             if (context.SemanticModel.GetDeclaredSymbol(member) is not IPropertySymbol propertySymbol)
             {
                 continue;
@@ -54,29 +49,20 @@ public sealed class ExperimentalTypingGenerator : IIncrementalGenerator
                 continue;
             }
 
-            if (member.ExpressionBody.Expression is not BinaryExpressionSyntax binary || binary.OperatorToken.Text != "|")
+            if (member.ExpressionBody?.Expression is null)
             {
                 continue;
             }
 
-            if (binary.Left is not TypeOfExpressionSyntax leftTypeOf || binary.Right is not TypeOfExpressionSyntax rightTypeOf)
+            if (!TryGetUnionTypes(member.ExpressionBody.Expression, context.SemanticModel, out var unionTypes))
             {
                 continue;
             }
 
-            var leftType = context.SemanticModel.GetTypeInfo(leftTypeOf.Type).Type;
-            var rightType = context.SemanticModel.GetTypeInfo(rightTypeOf.Type).Type;
-
-            if (leftType is null || rightType is null)
-            {
-                continue;
-            }
-
-            var commonProperties = GetCommonReadableProperties(leftType, rightType);
+            var commonProperties = GetCommonReadableProperties(unionTypes);
             intersections.Add(new IntersectionInfo(
                 propertySymbol.Name,
-                leftType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
-                rightType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                unionTypes.Select(static t => t.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)).ToImmutableArray(),
                 commonProperties));
         }
 
@@ -141,11 +127,21 @@ public sealed class ExperimentalTypingGenerator : IIncrementalGenerator
 
         foreach (var intersection in intersections)
         {
-            var leftMemberName = ToSafeIdentifier(intersection.LeftName);
-            var rightMemberName = ToSafeIdentifier(intersection.RightName);
-            if (string.Equals(leftMemberName, rightMemberName, StringComparison.Ordinal))
+            var memberNames = new HashSet<string>(StringComparer.Ordinal);
+            var memberInfos = new List<(string TypeName, string MemberName)>();
+
+            foreach (var typeName in intersection.TypeNames)
             {
-                rightMemberName += "2";
+                var baseName = ToSafeIdentifier(typeName);
+                var uniqueName = baseName;
+                var suffix = 2;
+                while (!memberNames.Add(uniqueName))
+                {
+                    uniqueName = baseName + suffix;
+                    suffix++;
+                }
+
+                memberInfos.Add((typeName, uniqueName));
             }
 
             sb.Append("    public ")
@@ -157,25 +153,58 @@ public sealed class ExperimentalTypingGenerator : IIncrementalGenerator
 
             sb.Append("    public partial class ").Append(intersection.PropertyName + "Type").AppendLine();
             sb.AppendLine("    {");
-            sb.Append("        public ").Append(intersection.LeftName).Append("? ").Append(leftMemberName).AppendLine(" { get; }");
-            sb.Append("        public ").Append(intersection.RightName).Append("? ").Append(rightMemberName).AppendLine(" { get; }");
+            foreach (var memberInfo in memberInfos)
+            {
+                sb.Append("        public ").Append(memberInfo.TypeName).Append("? ").Append(memberInfo.MemberName).AppendLine(" { get; }");
+            }
             sb.AppendLine();
-            sb.Append("        public ").Append(intersection.PropertyName + "Type").AppendLine("()")
-              .AppendLine("        {")
-              .Append("            ").Append(leftMemberName).AppendLine(" = default;")
-              .Append("            ").Append(rightMemberName).AppendLine(" = default;")
-              .AppendLine("        }");
+            sb.Append("        public ").Append(intersection.PropertyName + "Type").AppendLine("()");
+            sb.AppendLine("        {");
+            foreach (var memberInfo in memberInfos)
+            {
+                sb.Append("            ").Append(memberInfo.MemberName).AppendLine(" = default;");
+            }
+            sb.AppendLine("        }");
             sb.AppendLine();
-            sb.Append("        private ").Append(intersection.PropertyName + "Type").Append("(")
-              .Append(intersection.LeftName).Append("? left, ")
-              .Append(intersection.RightName).AppendLine("? right)")
-              .AppendLine("        {")
-              .Append("            ").Append(leftMemberName).AppendLine(" = left;")
-              .Append("            ").Append(rightMemberName).AppendLine(" = right;")
-              .AppendLine("        }");
+
+            sb.Append("        private ").Append(intersection.PropertyName + "Type").Append("(");
+            for (var i = 0; i < memberInfos.Count; i++)
+            {
+                var parameterName = i == 0 ? "value" : "value" + (i + 1);
+                if (i > 0)
+                {
+                    sb.Append(", ");
+                }
+
+                sb.Append(memberInfos[i].TypeName).Append("? ").Append(parameterName);
+            }
+
+            sb.AppendLine(")");
+            sb.AppendLine("        {");
+            for (var i = 0; i < memberInfos.Count; i++)
+            {
+                var parameterName = i == 0 ? "value" : "value" + (i + 1);
+                sb.Append("            ").Append(memberInfos[i].MemberName).Append(" = ").Append(parameterName).AppendLine(";");
+            }
+            sb.AppendLine("        }");
             sb.AppendLine();
-            sb.Append("        public static implicit operator ").Append(intersection.PropertyName + "Type").Append("(").Append(intersection.LeftName).AppendLine(" value) => new(value, default);");
-            sb.Append("        public static implicit operator ").Append(intersection.PropertyName + "Type").Append("(").Append(intersection.RightName).AppendLine(" value) => new(default, value);");
+
+            for (var i = 0; i < memberInfos.Count; i++)
+            {
+                sb.Append("        public static implicit operator ").Append(intersection.PropertyName + "Type").Append("(").Append(memberInfos[i].TypeName).Append(" value) => new(");
+                for (var j = 0; j < memberInfos.Count; j++)
+                {
+                    if (j > 0)
+                    {
+                        sb.Append(", ");
+                    }
+
+                    sb.Append(i == j ? "value" : "default");
+                }
+
+                sb.AppendLine(");");
+            }
+
             if (intersection.CommonProperties.Length > 0)
             {
                 sb.AppendLine();
@@ -187,16 +216,15 @@ public sealed class ExperimentalTypingGenerator : IIncrementalGenerator
                 sb.AppendLine("        {");
                 sb.AppendLine("            get");
                 sb.AppendLine("            {");
-                sb.Append("                if (").Append(leftMemberName).AppendLine(" is not null)");
-                sb.AppendLine("                {");
-                sb.Append("                    return ").Append(leftMemberName).Append(".").Append(property.Name).AppendLine(";");
-                sb.AppendLine("                }");
-                sb.AppendLine();
-                sb.Append("                if (").Append(rightMemberName).AppendLine(" is not null)");
-                sb.AppendLine("                {");
-                sb.Append("                    return ").Append(rightMemberName).Append(".").Append(property.Name).AppendLine(";");
-                sb.AppendLine("                }");
-                sb.AppendLine();
+                foreach (var memberInfo in memberInfos)
+                {
+                    sb.Append("                if (").Append(memberInfo.MemberName).AppendLine(" is not null)");
+                    sb.AppendLine("                {");
+                    sb.Append("                    return ").Append(memberInfo.MemberName).Append(".").Append(property.Name).AppendLine(";");
+                    sb.AppendLine("                }");
+                    sb.AppendLine();
+                }
+
                 sb.Append("                throw new InvalidOperationException(\"").Append(intersection.PropertyName + "Type").AppendLine(" has no value.\");");
                 sb.AppendLine("            }");
                 sb.AppendLine("        }");
@@ -248,42 +276,94 @@ public sealed class ExperimentalTypingGenerator : IIncrementalGenerator
         return sb.ToString();
     }
 
-    private static ImmutableArray<CommonPropertyInfo> GetCommonReadableProperties(ITypeSymbol leftType, ITypeSymbol rightType)
+    private static bool TryGetUnionTypes(ExpressionSyntax expression, SemanticModel semanticModel, out ImmutableArray<ITypeSymbol> types)
     {
-        var rightProperties = rightType
-            .GetMembers()
-            .OfType<IPropertySymbol>()
-            .Where(static property => property.GetMethod is not null && !property.IsStatic && property.DeclaredAccessibility == Accessibility.Public && property.GetMethod.DeclaredAccessibility == Accessibility.Public)
-            .ToDictionary(static property => property.Name, StringComparer.Ordinal);
+        var all = ImmutableArray.CreateBuilder<ITypeSymbol>();
+        FlattenOr(expression, semanticModel, all);
 
-        var properties = ImmutableArray.CreateBuilder<CommonPropertyInfo>();
-
-        foreach (var leftProperty in leftType.GetMembers().OfType<IPropertySymbol>())
+        var unique = ImmutableArray.CreateBuilder<ITypeSymbol>();
+        foreach (var type in all)
         {
-            if (leftProperty.GetMethod is null ||
-                leftProperty.IsStatic ||
-                leftProperty.DeclaredAccessibility != Accessibility.Public ||
-                leftProperty.GetMethod.DeclaredAccessibility != Accessibility.Public)
+            if (!unique.Any(existing => SymbolEqualityComparer.Default.Equals(existing, type)))
             {
-                continue;
+                unique.Add(type);
             }
-
-            if (!rightProperties.TryGetValue(leftProperty.Name, out var rightProperty))
-            {
-                continue;
-            }
-
-            if (!SymbolEqualityComparer.Default.Equals(leftProperty.Type, rightProperty.Type))
-            {
-                continue;
-            }
-
-            properties.Add(new CommonPropertyInfo(
-                leftProperty.Name,
-                leftProperty.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)));
         }
 
-        return properties
+        types = unique.ToImmutableArray();
+        return types.Length >= 2;
+    }
+
+    private static void FlattenOr(ExpressionSyntax expression, SemanticModel semanticModel, ImmutableArray<ITypeSymbol>.Builder types)
+    {
+        if (expression is BinaryExpressionSyntax binary && binary.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.BitwiseOrExpression))
+        {
+            FlattenOr(binary.Left, semanticModel, types);
+            FlattenOr(binary.Right, semanticModel, types);
+            return;
+        }
+
+        if (expression is not TypeOfExpressionSyntax typeOf)
+        {
+            return;
+        }
+
+        var type = semanticModel.GetTypeInfo(typeOf.Type).Type;
+        if (type is not null)
+        {
+            types.Add(type);
+        }
+    }
+
+    private static ImmutableArray<CommonPropertyInfo> GetCommonReadableProperties(ImmutableArray<ITypeSymbol> types)
+    {
+        if (types.Length == 0)
+        {
+            return ImmutableArray<CommonPropertyInfo>.Empty;
+        }
+
+        Dictionary<string, IPropertySymbol>? common = null;
+
+        foreach (var type in types)
+        {
+            var properties = type
+                .GetMembers()
+                .OfType<IPropertySymbol>()
+                .Where(static property => property.GetMethod is not null && !property.IsStatic && property.DeclaredAccessibility == Accessibility.Public && property.GetMethod.DeclaredAccessibility == Accessibility.Public)
+                .ToDictionary(static property => property.Name, StringComparer.Ordinal);
+
+            if (common is null)
+            {
+                common = properties;
+                continue;
+            }
+
+            var next = new Dictionary<string, IPropertySymbol>(StringComparer.Ordinal);
+            foreach (var kv in common)
+            {
+                if (properties.TryGetValue(kv.Key, out var candidate) &&
+                    SymbolEqualityComparer.Default.Equals(kv.Value.Type, candidate.Type))
+                {
+                    next[kv.Key] = kv.Value;
+                }
+            }
+
+            common = next;
+            if (common.Count == 0)
+            {
+                break;
+            }
+        }
+
+        if (common is null || common.Count == 0)
+        {
+            return ImmutableArray<CommonPropertyInfo>.Empty;
+        }
+
+        return common.Values
+            .Select(static property => new CommonPropertyInfo(
+                property.Name,
+                property.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)))
             .OrderBy(static property => property.Name, StringComparer.Ordinal)
             .ToImmutableArray();
     }
@@ -302,17 +382,15 @@ public sealed class ExperimentalTypingGenerator : IIncrementalGenerator
 
     private sealed class IntersectionInfo
     {
-        public IntersectionInfo(string propertyName, string leftName, string rightName, ImmutableArray<CommonPropertyInfo> commonProperties)
+        public IntersectionInfo(string propertyName, ImmutableArray<string> typeNames, ImmutableArray<CommonPropertyInfo> commonProperties)
         {
             PropertyName = propertyName;
-            LeftName = leftName;
-            RightName = rightName;
+            TypeNames = typeNames;
             CommonProperties = commonProperties;
         }
 
         public string PropertyName { get; }
-        public string LeftName { get; }
-        public string RightName { get; }
+        public ImmutableArray<string> TypeNames { get; }
         public ImmutableArray<CommonPropertyInfo> CommonProperties { get; }
     }
 
