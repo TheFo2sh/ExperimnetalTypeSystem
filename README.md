@@ -1,42 +1,66 @@
 # Experimental Type System
 
-## Checklist
-- [x] Describe what the solution does
-- [x] Explain how the source generator works
-- [x] Document the generated union wrapper shape
-- [x] Show how to run the xUnit tests
-- [x] Note current assumptions and limitations
-
 ## Overview
 
-This solution experiments with a small type-union style API in C# using an **incremental source generator**.
+This solution experiments with **algebraic sum types (union types)** in C# using an **incremental source generator**.
 
-When a partial class is decorated with `[ExpermientalTyping]`, the generator scans expression-bodied properties of type `UnionType` that look like this:
+When a partial class is decorated with `[ExpermientalTyping]`, the generator scans expression-bodied properties of type `UnionType` and generates strongly-typed union wrappers.
+
+### Key Features
+
+- ✅ **N-ary unions** — supports unlimited types: `typeof(A) | typeof(B) | typeof(C) | ...`
+- ✅ **Generic type support** — works with `List<T>`, `Dictionary<K,V>`, etc.
+- ✅ **Implicit conversions** — assign any union member directly to the wrapper
+- ✅ **Common property forwarding** — shared properties across all types are surfaced on the wrapper
+- ✅ **Type-safe slots** — one nullable property per union member type
+
+## Quick Start
 
 ```csharp
-public UnionType CurrentUser => typeof(User) | typeof(Profile);
+[ExpermientalTyping]
+public partial class Consumer
+{
+    // Binary union
+    public UnionType CurrentUser => typeof(User) | typeof(Profile);
+    
+    // N-ary union (4 types)
+    public UnionType XUser => typeof(User) | typeof(Profile) | typeof(Profile2) | typeof(Profile3);
+    
+    // Generic types
+    public UnionType LUser => typeof(List<User>) | typeof(List<Profile>) | typeof(List<Profile2>) | typeof(List<Profile3>);
+}
 ```
 
-For each matching property, the generator creates a nested wrapper type whose name is based on the property name.
+### Usage
 
-In the example above, it generates a nested type like:
+```csharp
+// Implicit conversion from any union member
+CurrentUserType current = new User("First", "Last", "Email");
 
-- `CurrentUserType`
+// Access the underlying value
+current.User.ShouldBeEquivalentTo(new User("First", "Last", "Email"));
+current.Profile.ShouldBeNull();
 
-That generated type acts as a strongly typed two-way union wrapper for the left and right types.
+// Access common properties directly on the wrapper
+current.FirstName.ShouldBe("First");
+current.LastName.ShouldBe("Last");
+
+// N-ary union works the same way
+XUserType xuser = new User("First", "Last", "Email");
+xuser.FirstName.ShouldBe("First");
+```
 
 ## Solution Structure
 
 ```text
 ExperimnetalTypeSystem.sln
-├── ExperimnetalTypeSystem/
-│   ├── Consumer.cs
-│   ├── ExperimentalTypeSystem.cs
+├── ExperimnetalTypeSystem.Test/
+│   ├── Consumer.cs              # Test class with union definitions
 │   ├── ExpermientalTypingAttribute.cs
-│   ├── ExperimnetalTypeSystem.csproj
-│   ├── Profile.cs
-│   ├── UnionType.cs
-│   └── User.cs
+│   ├── UnionType.cs             # Marker type for union syntax
+│   ├── User.cs
+│   ├── Profile.cs               # Contains Profile, Profile2, Profile3
+│   └── ExperimnetalTypeSystem.Test.csproj
 └── ExperimnetalTypeSystem.Generator/
     ├── ExperimentalTypingGenerator.cs
     └── ExperimnetalTypeSystem.Generator.csproj
@@ -44,16 +68,17 @@ ExperimnetalTypeSystem.sln
 
 ## How the Generator Works
 
-The incremental generator in `ExperimnetalTypeSystem.Generator/ExperimentalTypingGenerator.cs`:
+The incremental generator in `ExperimentalTypingGenerator.cs`:
 
-1. Finds partial classes decorated with `[ExpermientalTyping]`
-2. Looks for expression-bodied properties of type `UnionType`
-3. Detects binary expressions shaped like:
-   - `typeof(LeftType) | typeof(RightType)`
-4. Generates a nested wrapper class named from the property name:
-   - `CurrentUser` → `CurrentUserType`
-5. Adds implicit conversions from both union member types
-6. Adds shared getter-only properties when both sides expose the same **public readable instance property** with the same type
+1. **Finds** partial classes decorated with `[ExpermientalTyping]`
+2. **Scans** expression-bodied properties of type `UnionType`
+3. **Flattens** chained `|` expressions to collect all `typeof(...)` operands
+4. **Deduplicates** repeated types while preserving order
+5. **Computes** common readable properties shared across all union types
+6. **Generates** a nested wrapper class with:
+   - One nullable slot per union type
+   - Implicit conversion operator per union type
+   - Forwarding getters for common properties
 
 ## Generated Type Shape
 
@@ -63,121 +88,116 @@ Given this source:
 [ExpermientalTyping]
 public partial class Consumer
 {
-    public UnionType CurrentUser => typeof(User) | typeof(Profile);
+    public UnionType XUser => typeof(User) | typeof(Profile) | typeof(Profile2) | typeof(Profile3);
 }
 ```
 
-The generator produces a nested type conceptually like this:
+The generator produces:
 
 ```csharp
 public partial class Consumer
 {
-    public CurrentUserType CurrentUserTypeValue => new();
+    public XUserType XUserTypeValue => new();
 
-    public partial class CurrentUserType
+    public partial class XUserType
     {
         public User? User { get; }
         public Profile? Profile { get; }
+        public Profile2? Profile2 { get; }
+        public Profile3? Profile3 { get; }
 
-        public static implicit operator CurrentUserType(User value) => new(value, default);
-        public static implicit operator CurrentUserType(Profile value) => new(default, value);
+        public XUserType() { /* all slots default */ }
+        
+        private XUserType(User? value, Profile? value2, Profile2? value3, Profile3? value4) { /* assign slots */ }
 
-        public string FirstName => User is not null ? User.FirstName : Profile!.FirstName;
-        public string LastName  => User is not null ? User.LastName  : Profile!.LastName;
+        public static implicit operator XUserType(User value) => new(value, default, default, default);
+        public static implicit operator XUserType(Profile value) => new(default, value, default, default);
+        public static implicit operator XUserType(Profile2 value) => new(default, default, value, default);
+        public static implicit operator XUserType(Profile3 value) => new(default, default, default, value);
+
+        // Common property: FirstName exists on all 4 types with same type (string)
+        public string FirstName
+        {
+            get
+            {
+                if (User is not null) return User.FirstName;
+                if (Profile is not null) return Profile.FirstName;
+                if (Profile2 is not null) return Profile2.FirstName;
+                if (Profile3 is not null) return Profile3.FirstName;
+                throw new InvalidOperationException("XUserType has no value.");
+            }
+        }
     }
 }
 ```
 
-### Important Details
+### Common Property Detection
 
-- The generated wrapper stores one strongly typed slot per union member type.
-- It does **not** depend on the containing instance.
-- Only one slot is expected to be populated at a time.
-- Shared properties are generated only when both sides expose:
-  - the same property name
-  - the same property type
-  - a public getter
-  - an instance property (not static)
-- Shared properties are **getter-only**.
+A property is included in the generated wrapper only when **all** union types expose:
 
-## Example Test
-
-`ExperimnetalTypeSystem/Consumer.cs` contains an xUnit v3 test that exercises the generated wrapper:
-
-```csharp
-[Fact]
-public void Test()
-{
-    CurrentUserType current = new User("First", "Last", "Email");
-    current.User.ShouldBeEquivalentTo(new User("First", "Last", "Email"));
-    current.Profile.ShouldBeNull();
-    current.FirstName.ShouldBe("First");
-    current.LastName.ShouldBe("Last");
-}
-```
+- Same property name
+- Same property type
+- Public getter
+- Instance property (not static)
 
 ## Build and Test
-
-This project was converted **in place** into an xUnit v3 test project.
-
-### Run tests
-
-```zsh
-dotnet test ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln -v minimal
-```
 
 ### Build solution
 
 ```zsh
-dotnet build ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln
+dotnet build
+```
+
+### Run tests
+
+```zsh
+dotnet test
+```
+
+### View generated files
+
+Add to your `.csproj` to emit generated files to disk:
+
+```xml
+<PropertyGroup>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)/GeneratedFiles</CompilerGeneratedFilesOutputPath>
+</PropertyGroup>
 ```
 
 ## Requirements
 
 - .NET SDK with support for `net10.0`
-- Restore enabled for NuGet packages
+- NuGet package restore enabled
 
 ## Current Limitations
 
-This is intentionally experimental. The current generator supports:
+- Only `typeof(A) | typeof(B) | ...` syntax is supported
+- Only expression-bodied `UnionType` properties are detected
+- No exhaustiveness checking at compile time
+- No `Match` / `Switch` pattern-matching helpers (yet)
+- Setter generation for shared properties not supported
+- No custom diagnostics for malformed union expressions
 
-- exactly two union operands
-- only `typeof(A) | typeof(B)` syntax
-- only expression-bodied `UnionType` properties
-- nested generated wrapper classes
-- implicit conversion from either side into the wrapper
+## Algebraic Type Theory Context
 
-Not currently handled:
+This POC approximates **sum types** (discriminated unions) from algebraic type theory:
 
-- more than two types
-- method forwarding
-- field forwarding
-- setter generation for shared properties
-- advanced type-name normalization beyond simple identifier sanitization
-- custom diagnostics for unsupported union expressions
+| Concept | This POC |
+|---------|----------|
+| Sum type `A + B + C` | `typeof(A) \| typeof(B) \| typeof(C)` |
+| Case/variant | Nullable slot per type |
+| Injection | Implicit conversion operator |
+| Common interface | Auto-detected shared properties |
 
-## Troubleshooting
-
-### Generated file still shows stale members
-
-If you still see old generated members such as `Left` / `Right`, do a full rebuild:
-
-```zsh
-dotnet clean ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln
-dotnet build ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln
-```
-
-### Record internals like `EqualityContract` appear in generated code
-
-The generator now filters to public readable instance properties only. If stale output remains, rebuild the solution.
+**Note:** This is a C# approximation, not a true ADT. The compiler does not enforce:
+- Exactly one slot populated
+- Exhaustive pattern matching
 
 ## Next Ideas
 
-Possible follow-ups:
-
-- emit diagnostics for unsupported expressions
-- support more than two union members
-- generate pattern-matching helpers
-- generate `Match` / `Switch` methods
-- improve generated member naming for generic and nested types
-
+- Emit diagnostics for unsupported expressions
+- Generate `Match<TResult>(Func<A, TResult>, Func<B, TResult>, ...)` methods
+- Generate `Switch(Action<A>, Action<B>, ...)` methods
+- Support interface-based common members
+- Support method forwarding
