@@ -123,13 +123,13 @@ This project was converted **in place** into an xUnit v3 test project.
 ### Run tests
 
 ```zsh
-dotnet test /Users/ahmed/RiderProjects/ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln -v minimal
+dotnet test ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln -v minimal
 ```
 
 ### Build solution
 
 ```zsh
-dotnet build /Users/ahmed/RiderProjects/ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln
+dotnet build ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln
 ```
 
 ## Requirements
@@ -163,8 +163,8 @@ Not currently handled:
 If you still see old generated members such as `Left` / `Right`, do a full rebuild:
 
 ```zsh
-dotnet clean /Users/ahmed/RiderProjects/ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln
-dotnet build /Users/ahmed/RiderProjects/ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln
+dotnet clean ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln
+dotnet build ExperimnetalTypeSystem/ExperimnetalTypeSystem.sln
 ```
 
 ### Record internals like `EqualityContract` appear in generated code
