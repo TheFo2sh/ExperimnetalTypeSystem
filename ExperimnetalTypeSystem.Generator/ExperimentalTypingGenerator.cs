@@ -205,6 +205,30 @@ public sealed class ExperimentalTypingGenerator : IIncrementalGenerator
                 sb.AppendLine(");");
             }
 
+            sb.AppendLine();
+            sb.Append("        [OneOf(");
+            for (var i = 0; i < memberInfos.Count; i++)
+            {
+                if (i > 0)
+                {
+                    sb.Append(", ");
+                }
+                sb.Append("typeof(").Append(memberInfos[i].TypeName).Append(")");
+            }
+            sb.AppendLine(")]");
+            sb.AppendLine("        public object GetValue()");
+            sb.AppendLine("        {");
+            foreach (var memberInfo in memberInfos)
+            {
+                sb.Append("            if (").Append(memberInfo.MemberName).AppendLine(" is not null)");
+                sb.AppendLine("            {");
+                sb.Append("                return ").Append(memberInfo.MemberName).AppendLine(";");
+                sb.AppendLine("            }");
+                sb.AppendLine();
+            }
+            sb.Append("            throw new InvalidOperationException(\"").Append(intersection.PropertyName + "Type").AppendLine(" has no value.\");");
+            sb.AppendLine("        }");
+
             if (intersection.CommonProperties.Length > 0)
             {
                 sb.AppendLine();

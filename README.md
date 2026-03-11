@@ -13,6 +13,10 @@ When a partial class is decorated with `[ExpermientalTyping]`, the generator sca
 - ✅ **Implicit conversions** — assign any union member directly to the wrapper
 - ✅ **Common property forwarding** — shared properties across all types are surfaced on the wrapper
 - ✅ **Type-safe slots** — one nullable property per union member type
+- ✅ **GetValue()** — retrieve the underlying value as `object`
+- ✅ **[OneOf] attribute** — `GetValue()` is decorated with `[OneOf(typeof(T1), typeof(T2), ...)]` for runtime type info
+- ✅ **Exhaustiveness analyzer** — errors when `switch` on `GetValue()` doesn't handle all types (ONEOF001)
+- ✅ **Code fix provider** — IDE suggests "Add missing cases" to auto-generate missing switch arms
 
 ## Quick Start
 
@@ -45,9 +49,13 @@ current.Profile.ShouldBeNull();
 current.FirstName.ShouldBe("First");
 current.LastName.ShouldBe("Last");
 
+// Get the underlying value as object
+object value = current.GetValue(); // returns the User instance
+
 // N-ary union works the same way
 XUserType xuser = new User("First", "Last", "Email");
 xuser.FirstName.ShouldBe("First");
+xuser.GetValue().ShouldBeOfType<User>();
 ```
 
 ## Solution Structure
@@ -115,6 +123,16 @@ public partial class Consumer
         public static implicit operator XUserType(Profile2 value) => new(default, default, value, default);
         public static implicit operator XUserType(Profile3 value) => new(default, default, default, value);
 
+        [OneOf(typeof(User), typeof(Profile), typeof(Profile2), typeof(Profile3))]
+        public object GetValue()
+        {
+            if (User is not null) return User;
+            if (Profile is not null) return Profile;
+            if (Profile2 is not null) return Profile2;
+            if (Profile3 is not null) return Profile3;
+            throw new InvalidOperationException("XUserType has no value.");
+        }
+
         // Common property: FirstName exists on all 4 types with same type (string)
         public string FirstName
         {
@@ -139,6 +157,104 @@ A property is included in the generated wrapper only when **all** union types ex
 - Same property type
 - Public getter
 - Instance property (not static)
+
+## Exhaustiveness Analyzer
+
+The `OneOfExhaustivenessAnalyzer` checks that `switch` expressions and statements on `GetValue()` handle all possible types declared in the `[OneOf]` attribute.
+
+### Diagnostic: ONEOF001
+
+**"Switch is not exhaustive. Missing type(s): {types}"**
+
+#### Example - Will trigger warning:
+
+```csharp
+CurrentUserType current = new User("First", "Last", "Email");
+
+// ⚠️ ONEOF001: Switch is not exhaustive. Missing type(s): Profile
+var result = current.GetValue() switch
+{
+    User u => $"User: {u.FirstName}",
+    _ => "Unknown"  // discard doesn't count as handling Profile explicitly
+};
+```
+
+#### Example - Exhaustive (no warning):
+
+```csharp
+CurrentUserType current = new User("First", "Last", "Email");
+
+// ✅ All types handled explicitly
+var result = current.GetValue() switch
+{
+    User u => $"User: {u.FirstName}",
+    Profile p => $"Profile: {p.FirstName}",
+    _ => throw new InvalidOperationException()  // discard is fine after all types handled
+};
+```
+
+#### Switch statement support:
+
+```csharp
+XUserType xuser = new User("First", "Last", "Email");
+
+// ✅ All 4 types handled
+switch (xuser.GetValue())
+{
+    case User u:
+        Console.WriteLine($"User: {u.FirstName}");
+        break;
+    case Profile p:
+        Console.WriteLine($"Profile: {p.FirstName}");
+        break;
+    case Profile2 p2:
+        Console.WriteLine($"Profile2: {p2.FirstName}");
+        break;
+    case Profile3 p3:
+        Console.WriteLine($"Profile3: {p3.FirstName}");
+        break;
+    default:
+        throw new InvalidOperationException();
+}
+```
+
+### Supported patterns
+
+The analyzer recognizes these pattern forms:
+- `User u => ...` (declaration pattern)
+- `User => ...` (type pattern)
+- `User { } => ...` (recursive pattern with type)
+- `case User u:` (case pattern in switch statement)
+
+### Code Fix: "Add missing cases"
+
+When the analyzer reports ONEOF001, the IDE will offer a quick fix to automatically add the missing cases:
+
+**Before (with error):**
+```csharp
+var result = current.GetValue() switch
+{
+    User u => $"User: {u.FirstName}",
+    _ => "Unknown"
+};
+// ❌ ONEOF001: Missing type(s): Profile
+```
+
+**After applying "Add missing cases":**
+```csharp
+var result = current.GetValue() switch
+{
+    User u => $"User: {u.FirstName}",
+    Profile profile => throw new NotImplementedException(),
+    _ => "Unknown"
+};
+// ✅ All types handled
+```
+
+The code fix:
+- Inserts missing cases before the discard (`_`) or default case
+- Generates `throw new NotImplementedException()` as placeholder
+- Creates appropriate variable names from type names (e.g., `Profile` → `profile`, `List<User>` → `listUser`)
 
 ## Build and Test
 
@@ -174,10 +290,9 @@ Add to your `.csproj` to emit generated files to disk:
 
 - Only `typeof(A) | typeof(B) | ...` syntax is supported
 - Only expression-bodied `UnionType` properties are detected
-- No exhaustiveness checking at compile time
 - No `Match` / `Switch` pattern-matching helpers (yet)
 - Setter generation for shared properties not supported
-- No custom diagnostics for malformed union expressions
+- Exhaustiveness analyzer only works on direct `GetValue()` calls (not on variables assigned from it across methods)
 
 ## Algebraic Type Theory Context
 
