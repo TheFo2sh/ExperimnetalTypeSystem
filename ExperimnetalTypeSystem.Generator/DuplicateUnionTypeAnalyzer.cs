@@ -58,7 +58,10 @@ public sealed class DuplicateUnionTypeAnalyzer : DiagnosticAnalyzer
                 continue;
             }
 
-            if (propertySymbol.Type.Name != "UnionType")
+            // Check for UnionType - handle both resolved and potentially error types
+            var typeName = propertySymbol.Type.Name;
+            var metadataName = propertySymbol.Type.MetadataName;
+            if (typeName != "UnionType" && metadataName != "UnionType")
             {
                 continue;
             }
@@ -104,8 +107,21 @@ public sealed class DuplicateUnionTypeAnalyzer : DiagnosticAnalyzer
     {
         foreach (var attribute in classSymbol.GetAttributes())
         {
-            var name = attribute.AttributeClass?.Name;
-            if (name is "ExpermientalTypingAttribute" or "ExpermientalTyping")
+            var attributeClass = attribute.AttributeClass;
+            if (attributeClass is null)
+            {
+                continue;
+            }
+            
+            var name = attributeClass.Name;
+            var metadataName = attributeClass.MetadataName;
+            var fullName = attributeClass.ToDisplayString();
+            
+            // Check various name patterns
+            if (name is "ExpermientalTypingAttribute" or "ExpermientalTyping" ||
+                metadataName is "ExpermientalTypingAttribute" or "ExpermientalTyping" ||
+                fullName.EndsWith("ExpermientalTypingAttribute") ||
+                fullName.EndsWith("ExpermientalTyping"))
             {
                 return true;
             }

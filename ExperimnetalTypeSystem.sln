@@ -3,6 +3,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExperimnetalTypeSystem.Test
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExperimnetalTypeSystem.Generator", "ExperimnetalTypeSystem.Generator\ExperimnetalTypeSystem.Generator.csproj", "{E8EED164-4381-434F-A5F5-300A6A7F89E8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExperimentalTypeSystem.Base", "ExperimentalTypeSystem.Base\ExperimentalTypeSystem.Base.csproj", "{B8BAB539-A5BE-42BA-AA45-A27A031C2587}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -17,5 +19,9 @@ Global
 		{E8EED164-4381-434F-A5F5-300A6A7F89E8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E8EED164-4381-434F-A5F5-300A6A7F89E8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E8EED164-4381-434F-A5F5-300A6A7F89E8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B8BAB539-A5BE-42BA-AA45-A27A031C2587}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B8BAB539-A5BE-42BA-AA45-A27A031C2587}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B8BAB539-A5BE-42BA-AA45-A27A031C2587}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B8BAB539-A5BE-42BA-AA45-A27A031C2587}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

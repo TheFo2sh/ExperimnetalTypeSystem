@@ -1,4 +1,4 @@
-namespace ExperimnetalTypeSystem;
+namespace ExperimentalTypeSystem.Base;
 
 public static class ExperimentalTypeSystem
 {

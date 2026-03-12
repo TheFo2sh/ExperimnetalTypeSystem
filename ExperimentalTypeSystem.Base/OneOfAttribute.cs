@@ -1,4 +1,4 @@
-namespace ExperimnetalTypeSystem;
+namespace ExperimentalTypeSystem.Base;
 
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 public sealed class OneOfAttribute : Attribute
