@@ -167,30 +167,42 @@ The `OneOfExhaustivenessAnalyzer` checks that `switch` expressions and statement
 
 **"Switch is not exhaustive. Missing type(s): {types}"**
 
-#### Example - Will trigger warning:
+#### Example - Will trigger error (no discard/default):
 
 ```csharp
 CurrentUserType current = new User("First", "Last", "Email");
 
-// ⚠️ ONEOF001: Switch is not exhaustive. Missing type(s): Profile
+// ❌ ONEOF001: Switch is not exhaustive. Missing type(s): Profile
 var result = current.GetValue() switch
 {
-    User u => $"User: {u.FirstName}",
-    _ => "Unknown"  // discard doesn't count as handling Profile explicitly
+    User u => $"User: {u.FirstName}"
+    // No discard, no Profile handler!
 };
 ```
 
-#### Example - Exhaustive (no warning):
+#### Example - Valid with discard (no error):
 
 ```csharp
 CurrentUserType current = new User("First", "Last", "Email");
 
-// ✅ All types handled explicitly
+// ✅ OK - discard pattern makes switch exhaustive
 var result = current.GetValue() switch
 {
     User u => $"User: {u.FirstName}",
-    Profile p => $"Profile: {p.FirstName}",
-    _ => throw new InvalidOperationException()  // discard is fine after all types handled
+    _ => "Unknown"  // discard handles all other cases
+};
+```
+
+#### Example - Valid with all types (no error):
+
+```csharp
+CurrentUserType current = new User("First", "Last", "Email");
+
+// ✅ OK - all types handled explicitly
+var result = current.GetValue() switch
+{
+    User u => $"User: {u.FirstName}",
+    Profile p => $"Profile: {p.FirstName}"
 };
 ```
 

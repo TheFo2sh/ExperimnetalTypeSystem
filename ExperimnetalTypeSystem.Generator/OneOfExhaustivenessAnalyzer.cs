@@ -47,7 +47,14 @@ public sealed class OneOfExhaustivenessAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var handledTypes = GetHandledTypesFromSwitchExpression(switchExpr, context.SemanticModel);
+        var (handledTypes, hasDiscard) = GetHandledTypesFromSwitchExpression(switchExpr, context.SemanticModel);
+        
+        // If there's a discard pattern (_ =>), the switch is considered exhaustive
+        if (hasDiscard)
+        {
+            return;
+        }
+        
         var missingTypes = GetMissingTypes(oneOfTypes, handledTypes);
 
         if (missingTypes.Length > 0)
@@ -70,7 +77,14 @@ public sealed class OneOfExhaustivenessAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var handledTypes = GetHandledTypesFromSwitchStatement(switchStmt, context.SemanticModel);
+        var (handledTypes, hasDefault) = GetHandledTypesFromSwitchStatement(switchStmt, context.SemanticModel);
+        
+        // If there's a default case, the switch is considered exhaustive
+        if (hasDefault)
+        {
+            return;
+        }
+        
         var missingTypes = GetMissingTypes(oneOfTypes, handledTypes);
 
         if (missingTypes.Length > 0)
@@ -147,17 +161,19 @@ public sealed class OneOfExhaustivenessAnalyzer : DiagnosticAnalyzer
         return builder.ToImmutable();
     }
 
-    private static ImmutableArray<ITypeSymbol> GetHandledTypesFromSwitchExpression(SwitchExpressionSyntax switchExpr, SemanticModel semanticModel)
+    private static (ImmutableArray<ITypeSymbol> HandledTypes, bool HasDiscard) GetHandledTypesFromSwitchExpression(SwitchExpressionSyntax switchExpr, SemanticModel semanticModel)
     {
         var builder = ImmutableArray.CreateBuilder<ITypeSymbol>();
+        var hasDiscard = false;
 
         foreach (var arm in switchExpr.Arms)
         {
             var pattern = arm.Pattern;
 
-            // Skip discard pattern: _ => ... (doesn't count as handling a specific type)
+            // Check for discard pattern: _ => ...
             if (pattern is DiscardPatternSyntax)
             {
+                hasDiscard = true;
                 continue;
             }
 
@@ -168,21 +184,22 @@ public sealed class OneOfExhaustivenessAnalyzer : DiagnosticAnalyzer
             }
         }
 
-
-        return builder.ToImmutable();
+        return (builder.ToImmutable(), hasDiscard);
     }
 
-    private static ImmutableArray<ITypeSymbol> GetHandledTypesFromSwitchStatement(SwitchStatementSyntax switchStmt, SemanticModel semanticModel)
+    private static (ImmutableArray<ITypeSymbol> HandledTypes, bool HasDefault) GetHandledTypesFromSwitchStatement(SwitchStatementSyntax switchStmt, SemanticModel semanticModel)
     {
         var builder = ImmutableArray.CreateBuilder<ITypeSymbol>();
+        var hasDefault = false;
 
         foreach (var section in switchStmt.Sections)
         {
             foreach (var label in section.Labels)
             {
-                // Skip default case: doesn't count as handling a specific type
+                // Check for default case
                 if (label is DefaultSwitchLabelSyntax)
                 {
+                    hasDefault = true;
                     continue;
                 }
 
@@ -198,7 +215,7 @@ public sealed class OneOfExhaustivenessAnalyzer : DiagnosticAnalyzer
         }
 
 
-        return builder.ToImmutable();
+        return (builder.ToImmutable(), hasDefault);
     }
 
     private static ITypeSymbol? GetTypeFromPattern(PatternSyntax pattern, SemanticModel semanticModel)

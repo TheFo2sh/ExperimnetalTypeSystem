@@ -44,7 +44,6 @@ public partial class Consumer
         var result = current.GetValue() switch
         {
             User u => $"User: {u.FirstName}",
-            Profile p => $"Profile: {p.FirstName}",
             _ => throw new InvalidOperationException()
         };
 
